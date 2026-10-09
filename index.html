@@ -176,7 +176,7 @@ input[type=number],input[type=text]{font-family:var(--f-lcd);font-size:1rem;colo
     </div>
   </details>
 
-  <details id="driverBox">
+  <details id="driverBox" hidden>
     <summary>Driver mode</summary>
     <div class="setup">
       <div class="field"><label for="repo">GitHub repository</label><input id="repo" type="text" placeholder="yourname/plazardrs" autocapitalize="off" spellcheck="false"></div>
@@ -484,6 +484,12 @@ async function unlock(c){
   ls.set("rdrCode",c); $("lock").hidden=true;
 }
 $("lockForm").addEventListener("submit",e=>{e.preventDefault();unlock($("code").value.trim())});
+// Driver panel is hidden from everyone: open plazardrs.com/#driver, or tap the title 5 times.
+function showDriver(){ $("driverBox").hidden=false; $("driverBox").open=true; $("driverBox").scrollIntoView({behavior:"smooth"}) }
+if(location.hash==="#driver") setTimeout(showDriver,300);
+window.addEventListener("hashchange",()=>{ if(location.hash==="#driver") showDriver() });
+let taps=0,tapT=null;
+document.querySelector("h1").addEventListener("click",()=>{ taps++; clearTimeout(tapT); tapT=setTimeout(()=>taps=0,1500); if(taps>=5){taps=0;showDriver()} });
 applyMode();
 if(code){ $("lock").hidden=true; unlock(code) } else { $("code").focus() }
 setInterval(()=>{ if(code&&!document.hidden&&!saveTimer&&!saving) load() },60000);
