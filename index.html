@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#060708">
+<meta name="robots" content="noindex">
+<title>RDR Pace Cluster</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@400;600;700&family=Share+Tech+Mono&display=swap">
+<style>
+/* Layout: one horizontal binnacle — boost (pace) | tach (month gone, larger, centre) | target (% done) — with lamps and LCD strip beneath, setup drawer last. */
+:root{
+  --void:#060708;
+  --ink:#f1f4f7;         /* backlit white numerals */
+  --dim:#7f8791;
+  --needle:#ff3b1f;
+  --redzone:#e0141e;
+  --amber:#ffae1a;
+  --green:#3ddc84;
+  --lcd:#c9f2ff;
+  --lcd-bg:#0a1a1f;
+  --bezel:#2a2d33;
+  --f-gauge:"Saira Condensed","Arial Narrow",Arial,sans-serif;
+  --f-lcd:"Share Tech Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+html,body{background:var(--void);color:var(--ink);margin:0}
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+body{font-family:var(--f-gauge);padding-inline:16px;padding-block:20px 40px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+h1{margin:0;font-weight:700;font-size:1.1rem;letter-spacing:.28em;text-transform:uppercase}
+h1 span{color:var(--needle)}
+.month{font-family:var(--f-lcd);color:var(--dim);letter-spacing:.12em;font-size:.85rem}
+
+.hood{background:radial-gradient(ellipse at 50% -10%,#1a1d22 0%,#0b0c0e 55%,var(--void) 100%);border:1px solid #16191e;border-radius:40px 40px 22px 22px;padding:22px 12px 18px;box-shadow:inset 0 18px 34px rgba(0,0,0,.85),0 1px 0 #1d2025}
+.gauges{display:grid;grid-template-columns:1fr 1.38fr 1fr;gap:clamp(2px,1.2vw,14px);align-items:center}
+.gauge{min-width:0}
+.gauge svg{width:100%;height:auto;display:block;max-width:100%}
+.needle{transition:transform 1.8s cubic-bezier(.2,.9,.25,1.12)}
+@media (prefers-reduced-motion:reduce){.needle{transition:none}}
+
+.limiter{display:flex;flex-direction:column;gap:8px;margin:0 6px 16px}
+.lim-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:.8rem;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+.lim-head b{color:var(--ink);font-weight:700;font-family:var(--f-lcd);letter-spacing:.06em;font-size:1rem;text-transform:none}
+.leds{display:grid;gap:clamp(3px,1vw,7px);justify-content:center;padding:9px 10px;background:#030304;border:1px solid #1a1d22;border-radius:999px;box-shadow:inset 0 2px 8px rgba(0,0,0,.9)}
+.led{aspect-ratio:1;max-width:100%;border-radius:50%;background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.08),transparent 55%),var(--off);border:1px solid #000;box-shadow:inset 0 1px 3px rgba(0,0,0,.8)}
+.led.g{--off:#0d2016;--on:var(--green)}
+.led.y{--off:#261f08;--on:#ffd21a}
+.led.r{--off:#2a0a0a;--on:var(--redzone)}
+.led.on{background:radial-gradient(circle at 38% 32%,rgba(255,255,255,.75),transparent 45%),var(--on);box-shadow:0 0 10px var(--on),0 0 3px var(--on)}
+.leds.max .led.on{animation:limit .16s steps(2,jump-none) infinite alternate}
+@keyframes limit{from{opacity:1}to{opacity:.18}}
+@media (prefers-reduced-motion:reduce){.leds.max .led.on{animation:none}}
+.lim-foot{font-size:.74rem;letter-spacing:.12em;color:var(--dim);text-align:center}
+.lim-foot.hit{color:var(--redzone);font-weight:700;letter-spacing:.3em}
+.status{font-family:var(--f-lcd);font-size:.75rem;letter-spacing:.1em;color:var(--dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.status i{width:8px;height:8px;border-radius:50%;background:#333;display:inline-block}
+.status.live i{background:var(--green);box-shadow:0 0 8px var(--green)}
+.status.err i{background:var(--redzone)}
+.status button{font:inherit;color:var(--dim);background:none;border:1px solid #23262c;border-radius:6px;padding:3px 8px;cursor:pointer;letter-spacing:.1em}
+.lock{position:fixed;inset:0;z-index:10;display:grid;place-items:center;padding-inline:16px;background:radial-gradient(ellipse at 50% 30%,#14171b,var(--void) 70%)}
+.lock form{width:min(340px,100%);display:flex;flex-direction:column;gap:12px;text-align:center}
+.lock .t{font-weight:700;letter-spacing:.3em;font-size:1.05rem}
+.lock .t span{color:var(--needle)}
+.lock label{font-size:.72rem;letter-spacing:.24em;color:var(--dim);text-transform:uppercase}
+.lock input{font-family:var(--f-lcd);font-size:1.6rem;letter-spacing:.4em;text-align:center;color:var(--lcd);background:var(--lcd-bg);border:1px solid #163038;border-radius:8px;padding:12px;width:100%;box-sizing:border-box}
+.lock .msg{min-height:1.2em;color:var(--amber);font-size:.85rem;letter-spacing:.06em;margin:0}
+input[type=password]{font-family:var(--f-lcd);font-size:1rem;color:var(--lcd);background:var(--lcd-bg);border:1px solid #163038;border-radius:6px;padding:9px 10px;width:100%;box-sizing:border-box}
+.drv-row{display:flex;gap:10px;flex-wrap:wrap;padding-block:0 16px}
+.lamps{display:flex;justify-content:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.lamp{font-weight:700;font-size:.78rem;letter-spacing:.2em;padding:5px 12px;border-radius:4px;border:1px solid #1d2026;color:#2b2f36;background:#0b0c0e}
+.lamp.on.amber{color:var(--amber);border-color:var(--amber);box-shadow:0 0 14px rgba(255,174,26,.45);text-shadow:0 0 8px rgba(255,174,26,.7)}
+.lamp.on.green{color:var(--green);border-color:var(--green);box-shadow:0 0 14px rgba(61,220,132,.4);text-shadow:0 0 8px rgba(61,220,132,.7)}
+
+.lcd{margin-top:14px;background:var(--lcd-bg);border:1px solid #163038;border-radius:8px;padding:10px 14px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;font-family:var(--f-lcd);color:var(--lcd);text-shadow:0 0 6px rgba(201,242,255,.45)}
+@media (max-width:480px){.lcd{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.lcd div{display:flex;flex-direction:column;gap:2px}
+.lcd small{font-size:.66rem;letter-spacing:.18em;color:#5f8a96;text-shadow:none}
+.lcd b{font-weight:400;font-size:1.35rem;font-variant-numeric:tabular-nums}
+
+.log{display:flex;gap:10px;justify-content:center;align-items:center;flex-wrap:wrap}
+.btn{font-family:var(--f-gauge);font-weight:700;letter-spacing:.16em;font-size:.95rem;color:var(--ink);background:linear-gradient(#22252b,#14161a);border:1px solid var(--bezel);border-radius:10px;padding:12px 20px;cursor:pointer;min-width:84px}
+.btn:hover{border-color:#4a4f58}
+.btn:active{transform:translateY(1px)}
+.btn.primary{border-color:var(--needle);color:#fff;box-shadow:0 0 16px rgba(255,59,31,.25)}
+.btn:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+
+details{background:#0c0d10;border:1px solid #1a1d22;border-radius:14px;padding:4px 16px}
+summary{cursor:pointer;padding:12px 0;letter-spacing:.24em;font-weight:600;font-size:.85rem;color:var(--dim);text-transform:uppercase}
+.setup{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;padding-block:6px 16px}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.field label,.field .lbl{font-size:.72rem;letter-spacing:.2em;color:var(--dim);text-transform:uppercase}
+input[type=number],input[type=text]{font-family:var(--f-lcd);font-size:1rem;color:var(--lcd);background:var(--lcd-bg);border:1px solid #163038;border-radius:6px;padding:9px 10px;width:100%;box-sizing:border-box}
+.days{display:flex;gap:6px;flex-wrap:wrap}
+.days label{display:flex;align-items:center;justify-content:center;width:36px;height:34px;border:1px solid var(--bezel);border-radius:6px;cursor:pointer;font-size:.8rem;letter-spacing:.06em;color:var(--dim);user-select:none}
+.days input{position:absolute;opacity:0;pointer-events:none}
+.days input:checked+span{color:var(--ink)}
+.days label:has(input:checked){border-color:var(--needle);background:#1a0f0d}
+.days label:has(input:focus-visible){outline:2px solid var(--amber)}
+.check{display:flex;gap:8px;align-items:center;font-size:.85rem;color:var(--ink);letter-spacing:.04em;text-transform:none}
+.hint{font-size:.78rem;color:var(--dim);letter-spacing:.03em;line-height:1.4}
+</style>
+</head>
+<body>
+
+
+<div class="lock" id="lock">
+  <form id="lockForm" autocomplete="off">
+    <div class="t">RDR <span>PACE</span> CLUSTER</div>
+    <label for="code">Dealer code</label>
+    <input id="code" type="password" inputmode="numeric" pattern="[0-9]*" required>
+    <button class="btn primary" type="submit">START ENGINE</button>
+    <p class="msg" id="lockMsg"></p>
+  </form>
+</div>
+
+<div class="wrap">
+  <header>
+    <h1>RDR <span>Pace</span> Cluster</h1>
+    <div class="month" id="month"></div>
+  </header>
+  <div class="status" id="status"><i></i><span id="statusTxt">Loading…</span><button type="button" id="refresh">REFRESH</button><button type="button" id="lockBtn">LOCK</button></div>
+
+  <section class="hood" aria-label="Gauge cluster">
+    <div class="limiter" aria-label="Weekly shift lights">
+      <div class="lim-head"><span id="wkLabel">This week</span><span><b id="wkCount">–</b> RDR</span></div>
+      <div class="leds" id="leds"></div>
+      <div class="lim-foot" id="wkFoot"></div>
+    </div>
+    <div class="gauges">
+      <div class="gauge"><svg id="boost" viewBox="0 0 300 300" role="img" aria-label="Boost gauge: RDR units per day needed"></svg></div>
+      <div class="gauge"><svg id="tach" viewBox="0 0 300 300" role="img" aria-label="Tachometer: percent of month gone"></svg></div>
+      <div class="gauge"><svg id="target" viewBox="0 0 300 300" role="img" aria-label="Target gauge: percent of monthly target done"></svg></div>
+    </div>
+    <div class="lamps">
+      <span class="lamp green" id="lampOk">ON PACE</span>
+      <span class="lamp amber" id="lampBehind">BEHIND</span>
+      <span class="lamp amber" id="lampRed">OVERBOOST</span>
+    </div>
+    <div class="lcd">
+      <div><small>DONE</small><b id="lDone">–</b></div>
+      <div><small>LEFT</small><b id="lLeft">–</b></div>
+      <div><small>DAYS LEFT</small><b id="lDays">–</b></div>
+      <div><small>YOUR AVG</small><b id="lAvg">–</b></div>
+    </div>
+  </section>
+
+  <div class="log" id="logBtns" hidden>
+    <button class="btn" id="minus" type="button">−1 UNIT</button>
+    <button class="btn primary" id="plus" type="button">+1 UNIT</button>
+  </div>
+
+  <details id="setupBox" hidden>
+    <summary>Setup</summary>
+    <div class="setup">
+      <div class="field"><label for="goal">Monthly goal (units)</label><input id="goal" type="number" min="1" step="1"></div>
+      <div class="field"><label for="done">Done so far this month</label><input id="done" type="number" min="0" step="1"></div>
+      <div class="field"><label for="weekDone">Done this week</label><input id="weekDone" type="number" min="0" step="1"><span class="hint">Units since Sunday. Resets every Sunday; the month total resets on the 1st.</span></div>
+      <div class="field">
+        <span class="lbl">Working days</span>
+        <div class="days" id="days"></div>
+      </div>
+      <div class="field">
+        <label for="hol">Days off this month</label>
+        <input id="hol" type="text" placeholder="e.g. 12, 31">
+        <span class="hint">Day-of-month numbers, comma separated.</span>
+      </div>
+      <div class="field">
+        <span class="lbl">Today</span>
+        <label class="check"><input id="today" type="checkbox"> Count today as already gone</label>
+        <span class="hint">On: today is not counted as a working day left.</span>
+      </div>
+    </div>
+  </details>
+
+  <details id="driverBox">
+    <summary>Driver mode</summary>
+    <div class="setup">
+      <div class="field"><label for="repo">GitHub repository</label><input id="repo" type="text" placeholder="yourname/plazardrs" autocapitalize="off" spellcheck="false"></div>
+      <div class="field"><label for="token">GitHub access key</label><input id="token" type="password" placeholder="github_pat_…" autocapitalize="off" spellcheck="false"><span class="hint">Stays on this device only. Lets the +1 / −1 buttons and Setup save for everyone.</span></div>
+    </div>
+    <div class="drv-row">
+      <button class="btn primary" type="button" id="drvOn">CONNECT</button>
+      <button class="btn" type="button" id="drvOff">DISCONNECT</button>
+    </div>
+    <p class="hint" id="drvMsg"></p>
+  </details>
+</div>
+
+<script>
+const DAY_NAMES=["SU","MO","TU","WE","TH","FR","SA"];
+const now=new Date();
+const Y=now.getFullYear(), M=now.getMonth(), D=now.getDate();
+const monthKey=`${Y}-${String(M+1).padStart(2,"0")}`;
+
+const weekKey=`${monthKey}-${Math.max(1,D-now.getDay())}`;
+const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
+let state=null, code=ls.get("rdrCode"), sha=null;
+let driver=(()=>{try{return JSON.parse(ls.get("rdrDriver")||"null")}catch(e){return null}})();
+
+/* ---------- lock + encryption (AES-GCM, key from the dealer code) ---------- */
+const te=new TextEncoder(), td=new TextDecoder();
+const b64=u=>btoa(String.fromCharCode(...u)), unb64=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function keyFor(c,salt){
+  const base=await crypto.subtle.importKey("raw",te.encode(c),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:150000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+}
+async function openBox(box,c){
+  const key=await keyFor(c,unb64(box.salt));
+  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(box.iv)},key,unb64(box.data));
+  return JSON.parse(td.decode(pt));
+}
+async function sealBox(obj,c){
+  const salt=crypto.getRandomValues(new Uint8Array(16)), iv=crypto.getRandomValues(new Uint8Array(12));
+  const key=await keyFor(c,salt);
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},key,te.encode(JSON.stringify(obj))));
+  return {v:1,salt:b64(salt),iv:b64(iv),data:b64(ct)};
+}
+
+/* ---------- loading + saving ---------- */
+const api=p=>`https://api.github.com/repos/${driver.repo}/contents/${p}`;
+const ghHeaders=()=>({Authorization:`Bearer ${driver.token}`,Accept:"application/vnd.github+json"});
+async function fetchBox(){
+  if(driver){
+    const r=await fetch(api("data.json")+`?t=${Date.now()}`,{headers:ghHeaders(),cache:"no-store"});
+    if(r.status===404){sha=null;return null}
+    if(!r.ok) throw new Error(r.status===401?"Access key was refused. Check it in Driver mode.":"GitHub said "+r.status);
+    const j=await r.json(); sha=j.sha;
+    return JSON.parse(td.decode(unb64(j.content.replace(/\s/g,""))));
+  }
+  const r=await fetch(`data.json?t=${Date.now()}`,{cache:"no-store"});
+  if(!r.ok) throw new Error("Couldn't load the numbers ("+r.status+").");
+  return r.json();
+}
+const fresh=()=>({goal:54,done:0,workdays:[1,2,3,4,5,6],holidays:{},todayGone:true,month:monthKey,weekKey,weekBase:0});
+function normalize(s){
+  s={...fresh(),...s}; let changed=false;
+  if(s.month!==monthKey){s.done=0;s.weekBase=0;s.month=monthKey;s.weekKey=weekKey;changed=true}
+  if(s.weekKey!==weekKey){s.weekBase=s.done;s.weekKey=weekKey;changed=true}
+  return [s,changed];
+}
+let saveTimer=null, saving=false;
+function scheduleSave(){ if(!driver)return; clearTimeout(saveTimer); setStatus("Saving…"); saveTimer=setTimeout(saveNow,1200); }
+async function saveNow(retry=true){
+  saveTimer=null; saving=true;
+  try{
+    state.updated=new Date().toISOString();
+    const box=await sealBox(state,code);
+    const body={message:`RDR update ${state.done}/${state.goal}`,content:btoa(JSON.stringify(box,null,1)),...(sha?{sha}:{})};
+    const r=await fetch(api("data.json"),{method:"PUT",headers:{...ghHeaders(),"Content-Type":"application/json"},body:JSON.stringify(body)});
+    if((r.status===409||r.status===422)&&retry){await fetchBox();saving=false;return saveNow(false)}
+    if(!r.ok) throw new Error(r.status===401||r.status===403?"Access key can't write to that repository.":"Save failed ("+r.status+").");
+    sha=(await r.json()).content.sha;
+    setStatus("Saved · everyone sees it within ~1 min","live");
+  }catch(e){setStatus(e.message,"err")}
+  saving=false;
+}
+async function load(){
+  try{
+    const box=await fetchBox();
+    let s;
+    if(!box){ if(!driver) throw new Error("No numbers saved yet."); s=fresh(); }
+    else { try{ s=await openBox(box,code) }catch(e){ return false } }
+    const [n,changed]=normalize(s);
+    if(saveTimer||saving) return true;           // don't clobber local edits mid-save
+    state=n; fillSetup(); render();
+    if(driver&&(changed||!box)) scheduleSave();
+    else setStatus(liveText(),"live");
+    return true;
+  }catch(e){ setStatus(e.message,"err"); return true }
+}
+function liveText(){
+  const u=state&&state.updated?new Date(state.updated):null;
+  const t=u?u.toLocaleString("en",{weekday:"short",hour:"numeric",minute:"2-digit"}):"—";
+  return `${driver?"DRIVER":"LIVE"} · last update ${t}`;
+}
+function setStatus(t,cls=""){ $("status").className="status "+cls; $("statusTxt").textContent=t; }
+
+/* ---------- math ---------- */
+function compute(s){
+  const off=new Set(String(s.holidays[monthKey]||"").split(/[\s,]+/).map(n=>parseInt(n,10)).filter(n=>n>0));
+  const last=new Date(Y,M+1,0).getDate();
+  let total=0,gone=0;
+  for(let d=1;d<=last;d++){
+    const wd=new Date(Y,M,d).getDay();
+    if(!s.workdays.includes(wd)||off.has(d)) continue;
+    total++;
+    if(d<D||(d===D&&s.todayGone)) gone++;
+  }
+  const left=Math.max(0,s.goal-s.done);
+  const daysLeft=total-gone;
+  const pace=daysLeft>0?left/daysLeft:(left>0?Infinity:0);
+  const cruise=total>0?s.goal/total:0;
+  const pctGone=total?gone/total*100:0;
+  const pctDone=s.goal?Math.min(100,s.done/s.goal*100):0;
+  const avg=gone?s.done/gone:0;
+  // week: Sunday–Saturday, clipped to this month
+  const sun=D-now.getDay(), sat=sun+6;
+  let throughSat=0;
+  for(let d=1;d<=Math.min(sat,last);d++){const wd=new Date(Y,M,d).getDay();if(s.workdays.includes(wd)&&!off.has(d))throughSat++}
+  const markSat=total?s.goal*throughSat/total:0;
+  const weekNeed=Math.max(0,Math.ceil(Math.min(s.goal,markSat)-s.weekBase-1e-9));
+  const weekDone=Math.max(0,s.done-s.weekBase);
+  return {total,gone,daysLeft,left,pace,cruise,pctGone,pctDone,avg,sun:Math.max(1,sun+1),sat:Math.min(sat,last),markSat,weekNeed,weekDone};
+}
+
+/* ---------- gauge drawing (all three share one face design) ---------- */
+const NS="http://www.w3.org/2000/svg";
+const A0=-135,A1=135;
+const pol=(a,r)=>[150+r*Math.sin(a*Math.PI/180),150-r*Math.cos(a*Math.PI/180)];
+function el(tag,attrs,parent){const e=document.createElementNS(NS,tag);for(const k in attrs)e.setAttribute(k,attrs[k]);parent&&parent.appendChild(e);return e}
+function arc(a,b,r){const[x0,y0]=pol(a,r),[x1,y1]=pol(b,r);return `M${x0} ${y0} A${r} ${r} 0 ${b-a>180?1:0} 1 ${x1} ${y1}`}
+function txt(p,x,y,s,attrs){const t=el("text",{x,y,"text-anchor":"middle","font-family":"var(--f-gauge)",...attrs},p);t.textContent=s;return t}
+
+function face(svg,{max,major,minorPer,top,bottom,redFrom,fmt}){
+  svg.innerHTML="";
+  const id=svg.id;
+  el("defs",{},svg).innerHTML=`
+   <radialGradient id="f${id}" cx="50%" cy="35%" r="65%"><stop offset="0" stop-color="#15171a"/><stop offset="1" stop-color="#050607"/></radialGradient>
+   <linearGradient id="b${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8a9099"/><stop offset=".35" stop-color="#2a2d32"/><stop offset=".7" stop-color="#121316"/><stop offset="1" stop-color="#4b5058"/></linearGradient>
+   <linearGradient id="n${id}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff5a2a"/><stop offset=".5" stop-color="#ff2a10"/><stop offset="1" stop-color="#c41808"/></linearGradient>
+   <radialGradient id="c${id}" cx="40%" cy="35%" r="70%"><stop offset="0" stop-color="#3a3e45"/><stop offset="1" stop-color="#0d0e10"/></radialGradient>
+   <linearGradient id="gl${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity=".07"/><stop offset=".45" stop-color="#fff" stop-opacity="0"/></linearGradient>
+   <filter id="glow${id}" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>`;
+  // trim ring + face
+  el("circle",{cx:150,cy:150,r:148,fill:`url(#b${id})`},svg);
+  el("circle",{cx:150,cy:150,r:142,fill:"#0a0b0d"},svg);
+  el("circle",{cx:150,cy:150,r:139,fill:`url(#f${id})`},svg);
+  const ang=v=>A0+(A1-A0)*(v/max);
+  // white scale band along the outside, red zone in red
+  const bandEnd=redFrom!=null?ang(redFrom):A1;
+  el("path",{d:arc(A0,bandEnd,134),stroke:"var(--ink)","stroke-width":2,fill:"none",opacity:.85},svg);
+  if(redFrom!=null) el("path",{d:arc(bandEnd,A1,129),stroke:"var(--redzone)","stroke-width":12,fill:"none"},svg);
+  // ticks
+  const steps=Math.round(max/major)*minorPer;
+  for(let i=0;i<=steps;i++){
+    const v=i*major/minorPer,a=ang(v),isMaj=i%minorPer===0,half=!isMaj&&minorPer%2===0&&i%(minorPer/2)===0;
+    const r0=isMaj?113:half?120:125,[x0,y0]=pol(a,r0),[x1,y1]=pol(a,134);
+    const hot=redFrom!=null&&v>redFrom-1e-9;
+    el("line",{x1:x0,y1:y0,x2:x1,y2:y1,stroke:hot&&!isMaj?"#ff6a60":"var(--ink)","stroke-width":isMaj?4.2:half?2.4:1.4},svg);
+    if(isMaj){const[tx,ty]=pol(a,93);txt(svg,tx,ty+9,fmt(v),{fill:hot?"#ff4a40":"var(--ink)","font-size":27,"font-weight":700,"font-style":"italic"})}
+  }
+  // legends
+  txt(svg,150,104,top[0],{fill:"var(--ink)","font-size":13,"font-weight":600,"letter-spacing":"1.5","font-style":"italic"});
+  txt(svg,150,118,top[1],{fill:"var(--dim)","font-size":9.5,"letter-spacing":"2.2"});
+  txt(svg,150,262,bottom,{fill:"var(--dim)","font-size":9,"letter-spacing":"2.4"});
+  const markers=el("g",{},svg);
+  // LCD window
+  el("rect",{x:100,y:194,width:100,height:34,rx:4,fill:"var(--lcd-bg)",stroke:"#163038"},svg);
+  const read=el("text",{x:150,y:219,"text-anchor":"middle",fill:"var(--lcd)","font-family":"var(--f-lcd)","font-size":24,style:"text-shadow:0 0 6px rgba(201,242,255,.5)"},svg);
+  // needle with counterweight tail
+  const g=el("g",{class:"needle",style:`transform-origin:150px 150px;transform:rotate(${A0}deg)`},svg);
+  el("path",{d:"M146.2 178 L148.6 26 L151.4 26 L153.8 178 Z",fill:`url(#n${id})`,filter:`url(#glow${id})`},g);
+  // pivot cap
+  el("circle",{cx:150,cy:150,r:19,fill:`url(#c${id})`,stroke:"#2c2f35","stroke-width":1.5},svg);
+  el("circle",{cx:150,cy:150,r:4,fill:"#050506"},svg);
+  // glass reflection
+  el("path",{d:"M28 120 A124 124 0 0 1 272 120 Q150 92 28 120 Z",fill:`url(#gl${id})`},svg);
+  return {ang,max,needle:g,read,markers};
+}
+function marker(m,v,color){
+  const a=m.ang(Math.min(m.max,Math.max(0,v)));
+  const[px,py]=pol(a,137),[lx,ly]=pol(a-4,147),[rx,ry]=pol(a+4,147);
+  el("path",{d:`M${px} ${py} L${lx} ${ly} L${rx} ${ry} Z`,fill:color},m.markers);
+}
+const setNeedle=(m,v)=>requestAnimationFrame(()=>m.needle.style.transform=`rotate(${m.ang(Math.max(0,Math.min(m.max*1.03,v)))}deg)`);
+const niceMax=v=>[2,3,4,5,6,8,10,12,15,20,25,30,40,50].find(x=>x>=v)||Math.ceil(v/50)*50;
+const pctFmt=v=>v;
+
+let tach,boost,target,lastBoostMax=null;
+function render(){
+  if(!state) return;
+  const c=compute(state);
+  document.getElementById("month").textContent=now.toLocaleString("en",{month:"long",year:"numeric"}).toUpperCase()+` · DAY ${c.gone}/${c.total}`;
+
+  // centre: tach — % of month gone
+  if(!tach) tach=face(document.getElementById("tach"),{max:10,major:1,minorPer:4,top:["×10 %","MONTH GONE"],bottom:"WORKING DAYS",redFrom:8,fmt:pctFmt});
+  tach.read.textContent=c.pctGone.toFixed(2)+"%";
+  setNeedle(tach,c.pctGone/10);
+
+  // left: boost — RDR units/day needed
+  const bMax=niceMax(Math.max(c.cruise*2,isFinite(c.pace)?c.pace*1.2:0,3));
+  if(bMax!==lastBoostMax){
+    const maj=bMax<=6?1:bMax<=12?2:bMax<=30?5:10;
+    boost=face(document.getElementById("boost"),{max:bMax,major:maj,minorPer:maj===1?4:maj===2?4:5,top:["BOOST","RDR / DAY"],bottom:"PACE NEEDED",redFrom:(r=>r>0&&r<bMax?r:null)(Math.ceil(c.cruise*1.5*2)/2),fmt:v=>v});
+    lastBoostMax=bMax;
+  }
+  boost.markers.innerHTML="";
+  marker(boost,c.cruise,"var(--green)");
+  boost.read.textContent=isFinite(c.pace)?c.pace.toFixed(3):"MAX";
+  setNeedle(boost,isFinite(c.pace)?c.pace:bMax*1.03);
+
+  // right: target — % of monthly goal done
+  if(!target) target=face(document.getElementById("target"),{max:10,major:1,minorPer:4,top:["×10 %","TARGET DONE"],bottom:`${state.goal} RDR GOAL`,redFrom:null,fmt:pctFmt});
+  target.markers.innerHTML="";
+  marker(target,c.pctGone/10,"var(--amber)");
+  target.read.textContent=c.pctDone.toFixed(2)+"%";
+  setNeedle(target,c.pctDone/10);
+
+  const behind=c.pctDone<c.pctGone-0.05&&c.left>0;
+  document.getElementById("lampOk").classList.toggle("on",!behind);
+  document.getElementById("lampBehind").classList.toggle("on",behind);
+  document.getElementById("lampRed").classList.toggle("on",c.left>0&&(!isFinite(c.pace)||c.pace>c.cruise*1.5));
+
+  renderLimiter(c);
+  document.getElementById("lDone").textContent=`${state.done}/${state.goal}`;
+  document.getElementById("lLeft").textContent=c.left;
+  document.getElementById("lDays").textContent=c.daysLeft;
+  document.getElementById("lAvg").textContent=c.avg.toFixed(2);
+}
+
+/* ---------- weekly shift lights ---------- */
+const MON=now.toLocaleString("en",{month:"short"}).toUpperCase();
+let ledN=-1;
+function renderLimiter(c){
+  const N=c.weekNeed, box=$("leds");
+  $("wkLabel").textContent=`Week · ${MON} ${c.sun}–${c.sat}`;
+  $("wkCount").textContent=`${c.weekDone} / ${N}`;
+  if(N!==ledN){
+    box.innerHTML="";ledN=N;
+    const n=Math.max(N,1);
+    const red=N>=10?3:N>=5?2:1, yel=Math.round((n-red)*0.35);
+    box.style.gridTemplateColumns=`repeat(${n},minmax(0,${n>20?22:32}px))`;
+    for(let i=0;i<n;i++){const d=document.createElement("span");d.className="led "+(i>=n-red?"r":i>=n-red-yel?"y":"g");box.appendChild(d)}
+  }
+  const leds=box.children;
+  for(let i=0;i<leds.length;i++) leds[i].classList.toggle("on",N===0||i<c.weekDone);
+  const maxed=c.weekDone>=N;
+  box.classList.toggle("max",maxed);
+  const foot=$("wkFoot");
+  foot.classList.toggle("hit",maxed);
+  const togo=Math.max(0,N-c.weekDone);
+  foot.textContent=N===0?"ALREADY ON PACE FOR THIS WEEK":maxed?(c.weekDone>N?`REV LIMIT · +${c.weekDone-N} OVER`:"REV LIMIT · WEEK DONE"):`${togo} TO GO · ON PACE BY SAT = ${Math.ceil(c.markSat)} TOTAL`;
+}
+
+/* ---------- controls ---------- */
+function $(id){return document.getElementById(id)}
+DAY_NAMES.forEach((n,i)=>{const l=document.createElement("label");l.innerHTML=`<input type="checkbox" id="wd${i}"><span>${n}</span>`;$("days").appendChild(l)});
+let lastGoal=null;
+function fillSetup(){
+  DAY_NAMES.forEach((_,i)=>$("wd"+i).checked=state.workdays.includes(i));
+  $("goal").value=state.goal;$("done").value=state.done;$("hol").value=state.holidays[monthKey]||"";$("today").checked=state.todayGone;
+  $("weekDone").value=Math.max(0,state.done-state.weekBase);
+  if(state.goal!==lastGoal){target=null;lastBoostMax=null;lastGoal=state.goal}
+}
+function sync(e){
+  if(!state||!driver) return;
+  const wkEdit=e&&e.target&&e.target.id==="weekDone";
+  state.goal=Math.max(1,parseInt($("goal").value,10)||1);
+  state.done=Math.max(0,parseInt($("done").value,10)||0);
+  state.workdays=DAY_NAMES.map((_,i)=>$("wd"+i).checked?i:-1).filter(i=>i>=0);
+  state.holidays={...state.holidays,[monthKey]:$("hol").value};
+  state.todayGone=$("today").checked;
+  if(wkEdit) state.weekBase=state.done-Math.max(0,parseInt($("weekDone").value,10)||0);
+  else $("weekDone").value=Math.max(0,state.done-state.weekBase);
+  if(state.goal!==lastGoal){target=null;lastBoostMax=null;lastGoal=state.goal}
+  render(); scheduleSave();
+}
+document.querySelector("#setupBox .setup").addEventListener("input",sync);
+$("plus").onclick=()=>{if(!state)return;$("done").value=state.done+1;sync()};
+$("minus").onclick=()=>{if(!state)return;$("done").value=Math.max(0,state.done-1);sync()};
+
+function applyMode(){
+  $("logBtns").hidden=!driver; $("setupBox").hidden=!driver;
+  $("repo").value=driver?driver.repo:""; $("token").value=driver?driver.token:"";
+  $("drvMsg").textContent=driver?`Connected to ${driver.repo}. Your changes save for everyone.`:"View only. Connect with your GitHub access key to log units.";
+}
+$("drvOn").onclick=async()=>{
+  const repo=$("repo").value.trim().replace(/^https?:\/\/github\.com\//,"").replace(/\/$/,""), token=$("token").value.trim();
+  if(!/^[\w.-]+\/[\w.-]+$/.test(repo)||!token){$("drvMsg").textContent="Enter the repository as yourname/plazardrs and paste the access key.";return}
+  driver={repo,token}; ls.set("rdrDriver",JSON.stringify(driver)); applyMode(); await load();
+};
+$("drvOff").onclick=()=>{driver=null;ls.del("rdrDriver");sha=null;applyMode();load()};
+$("refresh").onclick=()=>load();
+$("lockBtn").onclick=()=>{ls.del("rdrCode");location.reload()};
+
+async function unlock(c){
+  code=c; $("lockMsg").textContent="Checking…";
+  const ok=await load();
+  if(!ok){ code=null; ls.del("rdrCode"); $("lockMsg").textContent="That code didn't work."; $("lock").hidden=false; $("code").value=""; $("code").focus(); return }
+  ls.set("rdrCode",c); $("lock").hidden=true;
+}
+$("lockForm").addEventListener("submit",e=>{e.preventDefault();unlock($("code").value.trim())});
+applyMode();
+if(code){ $("lock").hidden=true; unlock(code) } else { $("code").focus() }
+setInterval(()=>{ if(code&&!document.hidden&&!saveTimer&&!saving) load() },60000);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden&&code&&!saveTimer&&!saving) load() });
+</script>
+</body>
+</html>
