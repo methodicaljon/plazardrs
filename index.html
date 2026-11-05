@@ -101,6 +101,20 @@ input[type=number],input[type=text]{font-family:var(--f-lcd);font-size:1rem;colo
 .days label:has(input:checked){border-color:var(--needle);background:#1a0f0d}
 .days label:has(input:focus-visible){outline:2px solid var(--amber)}
 .check{display:flex;gap:8px;align-items:center;font-size:.85rem;color:var(--ink);letter-spacing:.04em;text-transform:none}
+/* Monthly log: one row per month; tap a row to show that month on the cluster. */
+.mlog{background:radial-gradient(ellipse at 50% -10%,#1a1d22 0%,#0b0c0e 55%,var(--void) 100%);border:1px solid #16191e;border-radius:22px;padding:18px;box-shadow:inset 0 18px 34px rgba(0,0,0,.85)}
+.mlog h2{margin:0 0 12px;font-size:.95rem;letter-spacing:.28em;text-transform:uppercase;font-weight:700}.mlog h2 span{color:var(--needle)}
+.mrows{display:flex;flex-direction:column;gap:10px}
+.mrow{all:unset;cursor:pointer;background:var(--lcd-bg);border:1px solid #163038;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:150px 1fr 170px;gap:16px;align-items:center;font-family:var(--f-lcd);color:var(--lcd)}
+.mrow:hover{border-color:#2a5966}.mrow:focus-visible{outline:2px solid var(--amber)}
+.mrow.sel{border-color:var(--needle);box-shadow:0 0 0 1px var(--needle),0 0 14px rgba(255,59,31,.25)}
+.mrow .m{letter-spacing:.12em;font-size:.95rem}.mrow .m small{display:block;color:var(--dim);font-size:.68rem;margin-top:3px}
+.mrow.cur .m small{color:var(--amber)}
+.mbar{height:14px;border-radius:7px;background:#06110f;border:1px solid #163038;overflow:hidden}
+.mbar i{display:block;height:100%;background:var(--c);box-shadow:0 0 10px var(--c)}
+.mnums{text-align:right;font-size:1.05rem;text-shadow:0 0 6px rgba(201,242,255,.45)}
+.mnums b{font-size:1.5rem;color:var(--c)}.mnums span{color:var(--dim);font-size:.8rem;display:block}
+@media (max-width:600px){.mrow{grid-template-columns:1fr auto;gap:8px 12px}.mbar{grid-column:1/-1;grid-row:2}}
 .hint{font-size:.78rem;color:var(--dim);letter-spacing:.03em;line-height:1.4}
 </style>
 </head>
@@ -148,6 +162,11 @@ input[type=number],input[type=text]{font-family:var(--f-lcd);font-size:1rem;colo
     </div>
   </section>
 
+  <section class="mlog" aria-label="Monthly RDR log">
+    <h2>Monthly <span>Log</span></h2>
+    <div class="mrows" id="mrows"></div>
+  </section>
+
   <div class="log" id="logBtns" hidden>
     <button class="btn" id="minus" type="button">−1 UNIT</button>
     <button class="btn primary" id="plus" type="button">+1 UNIT</button>
@@ -192,11 +211,18 @@ input[type=number],input[type=text]{font-family:var(--f-lcd);font-size:1rem;colo
 
 <script>
 const DAY_NAMES=["SU","MO","TU","WE","TH","FR","SA"];
-const now=new Date();
-const Y=now.getFullYear(), M=now.getMonth(), D=now.getDate();
+const NOW=new Date();
+let now=NOW, Y=now.getFullYear(), M=now.getMonth(), D=now.getDate();
 const monthKey=`${Y}-${String(M+1).padStart(2,"0")}`;
 
 const weekKey=`${monthKey}-${Math.max(1,D-now.getDay())}`;
+
+/* Monthly log. Add a line per month; the current month's actual and target come from the live numbers. */
+const MONTHS=[
+  {month:"2026-10",actual:54,target:54},
+  {month:"2026-11",target:45}
+];
+let view=null; // null = live current month; else a past month key
 const ls={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
 let state=null, code=ls.get("rdrCode"), sha=null;
 let driver=(()=>{try{return JSON.parse(ls.get("rdrDriver")||"null")}catch(e){return null}})();
@@ -245,7 +271,11 @@ function normalize(s){
 let saveTimer=null, saving=false;
 function scheduleSave(){ if(!driver)return; clearTimeout(saveTimer); setStatus("Saving…"); saveTimer=setTimeout(saveNow,1200); }
 async function saveNow(retry=true){
-  saveTimer=null; saving=true;
+  saveTimer=null;
+  // View mode has the dealer code only. Writes need a device-local GitHub token;
+  // hiding the buttons is not the security boundary.
+  if(!driver||!driver.repo||!driver.token) return;
+  saving=true;
   try{
     state.updated=new Date().toISOString();
     const box=await sealBox(state,code);
@@ -281,7 +311,9 @@ function setStatus(t,cls=""){ $("status").className="status "+cls; $("statusTxt"
 
 /* ---------- math ---------- */
 function compute(s){
-  const off=new Set(String(s.holidays[monthKey]||"").split(/[\s,]+/).map(n=>parseInt(n,10)).filter(n=>n>0));
+  // Y/M follow the month on the cluster (a past month while one is selected).
+  const holKey=`${Y}-${String(M+1).padStart(2,"0")}`;
+  const off=new Set(String((s.holidays||{})[holKey]||"").split(/[\s,]+/).map(n=>parseInt(n,10)).filter(n=>n>0));
   const last=new Date(Y,M+1,0).getDate();
   let total=0,gone=0;
   for(let d=1;d<=last;d++){
@@ -299,12 +331,19 @@ function compute(s){
   const avg=gone?s.done/gone:0;
   // week: Sunday–Saturday, clipped to this month
   const sun=D-now.getDay(), sat=sun+6;
-  let throughSat=0;
-  for(let d=1;d<=Math.min(sat,last);d++){const wd=new Date(Y,M,d).getDay();if(s.workdays.includes(wd)&&!off.has(d))throughSat++}
+  let throughSat=0, beforeWeek=0;
+  const weekStart=Math.max(1,sun);
+  for(let d=1;d<=Math.min(sat,last);d++){
+    const wd=new Date(Y,M,d).getDay();
+    if(!s.workdays.includes(wd)||off.has(d)) continue;
+    if(d<weekStart) beforeWeek++;
+    throughSat++;
+  }
   const markSat=total?s.goal*throughSat/total:0;
+  const markBefore=total?s.goal*beforeWeek/total:0;
   const weekNeed=Math.max(0,Math.ceil(Math.min(s.goal,markSat)-s.weekBase-1e-9));
   const weekDone=Math.max(0,s.done-s.weekBase);
-  return {total,gone,daysLeft,left,pace,cruise,pctGone,pctDone,avg,sun:Math.max(1,sun+1),sat:Math.min(sat,last),markSat,weekNeed,weekDone};
+  return {total,gone,daysLeft,left,pace,cruise,pctGone,pctDone,avg,sun:Math.max(1,sun+1),sat:Math.min(sat,last),markSat,markBefore,weekNeed,weekDone};
 }
 
 /* ---------- gauge drawing (all three share one face design) ---------- */
@@ -372,9 +411,48 @@ const pctFmt=v=>v;
 
 let tach,boost,target,lastBoostMax=null;
 function render(){
+  renderLog();
   if(!state) return;
+  const live=state;
+  if(view){
+    const m=MONTHS.find(x=>x.month===view);
+    // A past month has no per-week tally. weekBase = the month total painted a
+    // fake 0/0 week (one red lamp). Hold back only the on-pace units from
+    // before this week, so the lamps show that week's quota.
+    if(m){
+      const shown={...live,goal:Number(m.target)||live.goal,done:m.actual??0,weekBase:0,todayGone:true};
+      shown.weekBase=Math.min(shown.done, Math.floor(compute(shown).markBefore+1e-9));
+      state=shown;
+    }
+  }
+  try{renderCluster()}finally{state=live}
+}
+function setView(k){
+  view=(k===monthKey)?null:k;
+  if(view){const[y,m]=view.split("-").map(Number);now=new Date(y,m,0,12)}else now=NOW;
+  Y=now.getFullYear();M=now.getMonth();D=now.getDate();MON=now.toLocaleString("en",{month:"short"}).toUpperCase();
+  target=null;lastBoostMax=null;ledN=-1;render();
+}
+function renderLog(){
+  const box=$("mrows"); if(!box) return; box.innerHTML="";
+  for(const m of [...MONTHS].sort((a,b)=>b.month<a.month?-1:1)){
+    const cur=m.month===monthKey, past=m.month<monthKey;
+    if(!cur&&!past) continue;
+    const act=cur?(state?state.done:null):m.actual, tgt=cur&&state?state.goal:m.target;
+    const p=act!=null&&tgt?Math.round(act/tgt*100):0;
+    const c=cur?"var(--amber)":p>=100?"var(--green)":p>=80?"var(--amber)":"var(--needle)";
+    const sel=(view||monthKey)===m.month;
+    const b=document.createElement("button");b.type="button";b.className="mrow"+(cur?" cur":"")+(sel?" sel":"");b.style.setProperty("--c",c);
+    b.setAttribute("aria-pressed",sel);
+    const [y,mo]=m.month.split("-").map(Number);
+    b.innerHTML=`<div class="m">${new Date(y,mo-1,1).toLocaleString("en",{month:"short",year:"numeric"}).toUpperCase()}<small>${cur?"IN PROGRESS":"FINAL"}</small></div><div class="mbar"><i style="width:${Math.min(p,100)}%"></i></div><div class="mnums"><b>${p}%</b> ${act??"–"} / ${tgt}<span>ACTUAL / TARGET</span></div>`;
+    b.onclick=()=>setView(m.month);
+    box.appendChild(b);
+  }
+}
+function renderCluster(){
   const c=compute(state);
-  document.getElementById("month").textContent=now.toLocaleString("en",{month:"long",year:"numeric"}).toUpperCase()+` · DAY ${c.gone}/${c.total}`;
+  document.getElementById("month").textContent=now.toLocaleString("en",{month:"long",year:"numeric"}).toUpperCase()+(view?" · FINAL":` · DAY ${c.gone}/${c.total}`);
 
   // centre: tach — % of month gone
   if(!tach) tach=face(document.getElementById("tach"),{max:10,major:1,minorPer:4,top:["×10 %","MONTH GONE"],bottom:"WORKING DAYS",redFrom:8,fmt:pctFmt});
@@ -413,7 +491,7 @@ function render(){
 }
 
 /* ---------- weekly shift lights ---------- */
-const MON=now.toLocaleString("en",{month:"short"}).toUpperCase();
+let MON=now.toLocaleString("en",{month:"short"}).toUpperCase();
 let ledN=-1;
 function renderLimiter(c){
   const N=c.weekNeed, box=$("leds");
@@ -460,8 +538,8 @@ function sync(e){
   render(); scheduleSave();
 }
 document.querySelector("#setupBox .setup").addEventListener("input",sync);
-$("plus").onclick=()=>{if(!state)return;$("done").value=state.done+1;sync()};
-$("minus").onclick=()=>{if(!state)return;$("done").value=Math.max(0,state.done-1);sync()};
+$("plus").onclick=()=>{if(!state||!driver)return;$("done").value=state.done+1;sync()};
+$("minus").onclick=()=>{if(!state||!driver)return;$("done").value=Math.max(0,state.done-1);sync()};
 
 function applyMode(){
   $("logBtns").hidden=!driver; $("setupBox").hidden=!driver;
